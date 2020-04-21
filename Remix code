@@ -1,0 +1,244 @@
+pragma solidity ^0.5.17;
+
+contract Orderflow {
+    uint public _p_id =0;
+    uint public _u_id =0;
+
+
+    struct product {
+        uint customerID;
+        string priceOffer;
+        string _product_specs;
+        bool customer_Accept_Price;
+        uint workshopID;
+        uint ownerID;
+        bool customerApproveDesign;
+        bool AuthorityApproveDesign;
+        string IPFS_Hash; //design hash
+        string PrintingRec_Hash; //printing records hash
+        bool approve; //final design is approved
+        
+    }
+    
+    mapping(uint => product) public products;
+    
+    struct participant {
+        string _userName;
+        string _passWord;
+        string _userType;
+    }
+    mapping(uint => participant) public participants;
+    
+    
+    //set of events
+    event SmartContractIsCreated(uint own_id, uint customerID, uint product_ID);
+    event CustomerAskForOffer(uint Manufacturer_id, uint product_ID);
+    event Ask_Customer_For_Price_approval(uint customerID, uint product_ID);
+    event AskForDesignApproval(string IPFS_Hash, uint product_ID, uint Manufacturer_id);
+    event offerAccepted(uint product_id);
+    event DesignReady(uint own_id, string IPFS_Hash, uint product_ID, uint Manufacturer_id);
+    event Workshop_offering_printing (uint own_id, uint workshop_ID, uint product_ID);
+    event  Initiate_Printing_and_activate_IoT();
+    event  AskForProductApproaval(address indexed oldOwner, address indexed newOwner);
+    event  FinalProductApproved(uint product_ID);
+    event FinalProductApprovedRejected(uint product_ID);
+    event Ask_Customer_For_Workshop_approval(uint workshop_ID, uint product_id);
+    event  FinalProductApprovedByCustomer(uint productID);
+    event DesignApprovedByCustomer(uint product_id);
+    event DesignApprovedByAuthority(uint product_id);
+
+
+    function createParticipant(string memory name ,string memory pass ,string memory utype) public returns (uint){
+        uint user_id = _u_id++;
+        participants[user_id]._userName = name ;
+        participants[user_id]._passWord = pass;
+        participants[user_id]._userType = utype;
+        
+        return user_id;
+    }
+    
+    //manugacturer create a new product to be designed and printed
+    function newProduct(uint own_id ,uint customerID ) public returns (uint) {
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Manufacturer"))  {
+            uint product_id = _p_id++;
+            products[product_id].ownerID = own_id;
+            products[product_id].customerID = customerID;
+
+            emit SmartContractIsCreated( own_id, customerID, product_id);
+            return product_id;
+ 
+        }
+        
+    }
+    
+    //Customer uploads Order Details to  (product details, quantity) 
+    
+       function ProductDetails(uint customerID, uint product_id, string memory p_specs, uint quantity ) public {
+        if(keccak256(abi.encodePacked(products[product_id].customerID)) == keccak256(abi.encodePacked(customerID))) {
+            products[product_id]._product_specs =p_specs;
+            emit CustomerAskForOffer(products[product_id].ownerID, product_id);
+
+        }
+        
+    }
+    
+    //Manufacturer provide price offer
+    
+    function Product_Price_offer(uint own_id, uint product_id , string memory price) public {
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Manufacturer")) {
+           
+            products[product_id].priceOffer = price;
+            emit Ask_Customer_For_Price_approval(products[product_id].customerID, product_id);
+ 
+        }
+        
+    }
+    
+    //customer accpet price offer
+    
+
+    function CustomerAcceptPriceOffer(uint customerID, uint product_id, bool decission ) public {
+        if(keccak256(abi.encodePacked(products[product_id].customerID)) == keccak256(abi.encodePacked(customerID))) {
+            products[product_id].customer_Accept_Price = decission;
+            if (decission)
+            emit offerAccepted(product_id);
+
+        }
+        
+    }
+    
+    //workshop offer printing
+    
+    function WorkshipOfferPrinting(uint own_id, uint product_id) public {
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Workshop")) {
+            
+            emit Ask_Customer_For_Workshop_approval(own_id, product_id);
+ 
+        }
+        
+    }
+    
+    
+ 
+     //Authority approve design 
+
+     function AuthorityApproveDesign(uint own_id, uint product_id, bool decission) public{
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("CertificationAuthority")) {           
+           products[product_id].AuthorityApproveDesign = decission;
+           if(decission)
+            emit DesignApprovedByAuthority(product_id);
+            }
+        }
+
+     //customer approve design and process payment
+
+     function customerApproveDesign(uint own_id, uint product_id, bool decission) public{
+        if(keccak256(abi.encodePacked(products[product_id].customerID)) == keccak256(abi.encodePacked(own_id))) {
+           //check if the design is approved by the authority
+           if (products[product_id].AuthorityApproveDesign)
+           {
+           products[product_id].customerApproveDesign = decission;
+            if(decission)
+            emit DesignApprovedByCustomer(product_id);
+           }
+
+        }
+    }
+        
+    
+    
+    //designer submit the design as an IPFS hash
+    function Sumbit_design(uint own_id, string memory IPFS_Hash, uint product_ID, uint Manufacturer_id) public{
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Designer")) {
+            
+            products[product_ID].IPFS_Hash = IPFS_Hash;
+            transferOwnership_product(own_id,Manufacturer_id,product_ID);
+            emit AskForDesignApproval( IPFS_Hash,  product_ID,  Manufacturer_id);
+            }
+            
+        }
+        
+        
+    
+    //customer assign 3d printing workshop to print the product
+    
+    function AssignWorkshop(uint own_id, uint workshop_ID, uint product_ID) public {
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Customer")) {
+            
+            products[product_ID].workshopID = workshop_ID;
+            transferOwnership_product(own_id,workshop_ID,product_ID);
+            emit Initiate_Printing_and_activate_IoT();
+
+            }
+        }
+    
+    //3d workshop upload the records of the product
+    
+    function Upload_records_To_IPFS(uint own_id, uint product_ID, uint Manufacturer_ID, string memory PrintingRec_Hash) public {
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("Workshop")) {
+            
+            products[product_ID].PrintingRec_Hash = PrintingRec_Hash;
+            transferOwnership_product(own_id,Manufacturer_ID,product_ID);
+
+            }
+    }
+        
+        
+    //certification authority Approve the Final Product
+     function ApproveFinalProduct(uint own_id, uint productID, bool approve) public{
+        if(keccak256(abi.encodePacked(participants[own_id]._userType)) == keccak256("CertificationAuthority")) {
+            
+            
+            products[productID].approve = approve;
+            if(approve)
+            emit FinalProductApproved(productID);
+            else
+            emit FinalProductApprovedRejected(productID);
+
+        
+            }
+        }
+        
+        
+     //customer approve and process payment
+
+     function customerProcessPayemnt(uint own_id, uint product_id) public{
+        if(keccak256(abi.encodePacked(products[product_id].customerID)) == keccak256(abi.encodePacked(own_id))) {
+            if(products[product_id].approve)
+            emit FinalProductApprovedByCustomer(product_id);
+
+        
+            }
+        }
+        
+    
+    function getParticipant(uint p_id) public returns (string memory,string memory)  {
+        return (participants[p_id]._userName,participants[p_id]._userType);
+    }
+    function getProduct_details(uint prod_id) public returns (string memory) {
+        return (products[prod_id]._product_specs);
+    }
+
+    function transferOwnership_product(uint user1_id ,uint user2_id, uint prod_id) public returns(bool) {
+        participant  memory p1 = participants[user1_id];
+        participant  memory p2 = participants[user2_id];
+            products[prod_id].ownerID = user2_id;
+            
+            return (true);
+       
+    }
+    
+   
+    
+    function userLogin(uint uid ,string memory uname ,string memory pass ,string memory utype) public returns (bool){
+        if(keccak256(abi.encodePacked(participants[uid]._userType)) == keccak256(abi.encodePacked(utype))) {
+            if(keccak256(abi.encodePacked(participants[uid]._userName)) == keccak256(abi.encodePacked(uname))) {
+                if(keccak256(abi.encodePacked(participants[uid]._passWord))==keccak256(abi.encodePacked(pass))) {
+                    return (true);
+                }
+            }
+        }
+        
+        return (false);
+    }
+}
